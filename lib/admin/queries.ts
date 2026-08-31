@@ -3,13 +3,25 @@ import { createClient } from "@/lib/supabase/server";
 import { ACTIVE_WINDOW_SECONDS } from "./sessions";
 import type {
   ActivityEventType,
+  Brand,
+  BrandActivitySummaryRow,
   BrandStatus,
 } from "@/lib/supabase/types";
 
+const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+
+/**
+ * Midnight IST (Asia/Kolkata) on the same IST calendar day as `d`, returned
+ * as the correct UTC instant. Uses only UTC getters/setters so it doesn't
+ * depend on the server process's local timezone (unlike `d.setHours()`,
+ * which reads/writes server-local time and drifts between a dev machine and
+ * a UTC-default production host — the same class of bug fixed for display
+ * formatting in lib/format.ts).
+ */
 function startOfDay(d: Date): Date {
-  const copy = new Date(d);
-  copy.setHours(0, 0, 0, 0);
-  return copy;
+  const shifted = new Date(d.getTime() + IST_OFFSET_MS);
+  shifted.setUTCHours(0, 0, 0, 0);
+  return new Date(shifted.getTime() - IST_OFFSET_MS);
 }
 function startOfMonth(d: Date): Date {
   return new Date(d.getFullYear(), d.getMonth(), 1);
@@ -50,6 +62,17 @@ export async function getUserDisplayMap(
   return map;
 }
 
+/**
+ * Activity/session views are meant to track brand-user behavior, not admin
+ * staff browsing the dashboard — admin logins/sessions are excluded from
+ * all of them (Overview tiles, Activity Logs, Active Sessions).
+ */
+async function getAdminUserIds(): Promise<string[]> {
+  const supabase = await createClient();
+  const { data } = await supabase.from("profiles").select("id").eq("is_admin", true);
+  return (data ?? []).map((p) => p.id);
+}
+
 // ---------------------------------------------------------------------------
 // Overview / bento grid
 // ---------------------------------------------------------------------------
@@ -67,13 +90,16 @@ export async function getActiveUsersNow(): Promise<{
 }> {
   const supabase = await createClient();
   const cutoff = new Date(Date.now() - ACTIVE_WINDOW_SECONDS * 1000).toISOString();
+  const adminIds = await getAdminUserIds();
 
-  const { data, count } = await supabase
+  let query = supabase
     .from("user_sessions")
     .select("user_id, last_seen_at", { count: "exact" })
     .eq("is_active", true)
-    .gte("last_seen_at", cutoff)
-    .order("last_seen_at", { ascending: false });
+    .gte("last_seen_at", cutoff);
+  if (adminIds.length > 0) query = query.not("user_id", "in", `(${adminIds.join(",")})`);
+
+  const { data, count } = await query.order("last_seen_at", { ascending: false });
 
   const rows = data ?? [];
   const displayMap = await getUserDisplayMap(rows.map((r) => r.user_id));
@@ -183,11 +209,14 @@ export interface RecentActivityRow {
 
 export async function getRecentActivity(limit = 8): Promise<RecentActivityRow[]> {
   const supabase = await createClient();
-  const { data } = await supabase
+  const adminIds = await getAdminUserIds();
+
+  let query = supabase
     .from("activity_logs")
-    .select("id, user_id, event_type, metadata, created_at")
-    .order("created_at", { ascending: false })
-    .limit(limit);
+    .select("id, user_id, event_type, metadata, created_at");
+  if (adminIds.length > 0) query = query.not("user_id", "in", `(${adminIds.join(",")})`);
+
+  const { data } = await query.order("created_at", { ascending: false }).limit(limit);
 
   const rows = data ?? [];
   const displayMap = await getUserDisplayMap(rows.map((r) => r.user_id));
@@ -317,6 +346,24 @@ export async function getUsersList(
       };
     }),
   };
+}
+
+export interface UserStats {
+  total: number;
+  active: number;
+  suspended: number;
+}
+
+export async function getUserStats(): Promise<UserStats> {
+  const supabase = await createClient();
+  const [{ count: total }, { count: suspendedProfiles }] = await Promise.all([
+    supabase.from("brands").select("id", { count: "exact", head: true }),
+    supabase.from("profiles").select("id", { count: "exact", head: true }).eq("is_suspended", true),
+  ]);
+
+  const suspended = suspendedProfiles ?? 0;
+  const totalCount = total ?? 0;
+  return { total: totalCount, active: Math.max(0, totalCount - suspended), suspended };
 }
 
 export interface UserDetail {
@@ -464,6 +511,17 @@ export async function getApprovalHistory(
     combined = combined.filter((r) => r.performed_by === filters.adminId);
   }
 
+  // A single "verify"/"reject" decision updates two brand_verifications rows
+  // at once (business_proof + id_proof), sharing the same brand/action/actor/
+  // timestamp — collapse those into the one history entry the decision
+  // actually represents, keeping the earliest row id for a stable key.
+  const seen = new Map<string, ApprovalHistoryRow>();
+  for (const row of combined) {
+    const key = `${row.source}|${row.brand_id}|${row.action}|${row.performed_by}|${row.created_at}`;
+    if (!seen.has(key)) seen.set(key, row);
+  }
+  combined = Array.from(seen.values());
+
   combined.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
   const total = combined.length;
@@ -492,6 +550,20 @@ export async function getApprovalHistory(
       performed_by_email: admins?.find((a) => a.id === r.performed_by)?.email ?? null,
     })),
   };
+}
+
+export interface ApprovalStats {
+  approved: number;
+  rejected: number;
+}
+
+export async function getApprovalStats(): Promise<ApprovalStats> {
+  const supabase = await createClient();
+  const [{ count: approved }, { count: rejected }] = await Promise.all([
+    supabase.from("brand_approvals").select("id", { count: "exact", head: true }).eq("status", "approved"),
+    supabase.from("brand_approvals").select("id", { count: "exact", head: true }).eq("status", "rejected"),
+  ]);
+  return { approved: approved ?? 0, rejected: rejected ?? 0 };
 }
 
 export interface FilterUserOption {
@@ -538,11 +610,13 @@ export async function getActivityLogsList(
   const supabase = await createClient();
   const from = (filters.page - 1) * filters.pageSize;
   const to = from + filters.pageSize - 1;
+  const adminIds = await getAdminUserIds();
 
   let query = supabase
     .from("activity_logs")
     .select("id, user_id, event_type, metadata, created_at", { count: "exact" });
 
+  if (adminIds.length > 0) query = query.not("user_id", "in", `(${adminIds.join(",")})`);
   if (filters.userId) query = query.eq("user_id", filters.userId);
   if (filters.eventType) query = query.eq("event_type", filters.eventType);
   if (filters.dateFrom) query = query.gte("created_at", filters.dateFrom);
@@ -563,6 +637,174 @@ export async function getActivityLogsList(
       email: displayMap.get(r.user_id)?.email ?? null,
     })),
   };
+}
+
+export interface ActivityStats {
+  total: number;
+  today: number;
+}
+
+export async function getActivityStats(): Promise<ActivityStats> {
+  const supabase = await createClient();
+  const adminIds = await getAdminUserIds();
+  const todayStart = startOfDay(new Date()).toISOString();
+
+  let totalQuery = supabase.from("activity_logs").select("id", { count: "exact", head: true });
+  let todayQuery = supabase
+    .from("activity_logs")
+    .select("id", { count: "exact", head: true })
+    .gte("created_at", todayStart);
+
+  if (adminIds.length > 0) {
+    const exclusion = `(${adminIds.join(",")})`;
+    totalQuery = totalQuery.not("user_id", "in", exclusion);
+    todayQuery = todayQuery.not("user_id", "in", exclusion);
+  }
+
+  const [{ count: total }, { count: today }] = await Promise.all([totalQuery, todayQuery]);
+  return { total: total ?? 0, today: today ?? 0 };
+}
+
+// ---------------------------------------------------------------------------
+// Activity Logs — Page 1: brand activity summary (/admin/logs)
+// One row per brand (latest event, events today, total events), computed
+// server-side via the get_brand_activity_summary() Postgres function —
+// PostgREST has no GROUP BY, and pulling every log row to aggregate in JS
+// wouldn't scale, so the aggregation happens in the database.
+// ---------------------------------------------------------------------------
+
+export interface BrandActivitySummaryFilters {
+  page: number;
+  pageSize: number;
+  search?: string;
+  userId?: string;
+  eventType?: ActivityEventType;
+  dateFrom?: string;
+  dateTo?: string;
+}
+
+export async function getBrandActivitySummary(
+  filters: BrandActivitySummaryFilters
+): Promise<{ rows: BrandActivitySummaryRow[]; total: number }> {
+  const supabase = await createClient();
+  const offset = (filters.page - 1) * filters.pageSize;
+
+  const { data, error } = await supabase.rpc("get_brand_activity_summary", {
+    p_search: filters.search || null,
+    p_user_id: filters.userId || null,
+    p_event_type: filters.eventType || null,
+    p_date_from: filters.dateFrom ? new Date(filters.dateFrom).toISOString() : null,
+    p_date_to: filters.dateTo ? new Date(filters.dateTo).toISOString() : null,
+    p_today_start: startOfDay(new Date()).toISOString(),
+    p_limit: filters.pageSize,
+    p_offset: offset,
+  });
+
+  if (error || !data) return { rows: [], total: 0 };
+  return { rows: data, total: data[0]?.total_count ?? 0 };
+}
+
+// ---------------------------------------------------------------------------
+// Activity Logs — Page 2: single-brand detail (/admin/logs/[brandId])
+// ---------------------------------------------------------------------------
+
+export interface BrandActivityProfile {
+  brand: Brand;
+  email: string | null;
+}
+
+export async function getBrandActivityProfile(brandId: string): Promise<BrandActivityProfile | null> {
+  const supabase = await createClient();
+  const { data: brand } = await supabase.from("brands").select("*").eq("id", brandId).maybeSingle();
+  if (!brand) return null;
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("email")
+    .eq("id", brand.user_id)
+    .maybeSingle();
+
+  return { brand, email: profile?.email ?? null };
+}
+
+export interface BrandActivityBrandStats {
+  total: number;
+  today: number;
+}
+
+/** Unfiltered totals for the stat cards — independent of the log table's active filters. */
+export async function getBrandActivityBrandStats(brandId: string): Promise<BrandActivityBrandStats> {
+  const supabase = await createClient();
+  const todayStart = startOfDay(new Date()).toISOString();
+
+  const [{ count: total }, { count: today }] = await Promise.all([
+    supabase.from("activity_logs").select("id", { count: "exact", head: true }).eq("brand_id", brandId),
+    supabase
+      .from("activity_logs")
+      .select("id", { count: "exact", head: true })
+      .eq("brand_id", brandId)
+      .gte("created_at", todayStart),
+  ]);
+
+  return { total: total ?? 0, today: today ?? 0 };
+}
+
+export interface BrandActivityLogRow {
+  id: string;
+  user_id: string;
+  event_type: ActivityEventType;
+  metadata: Record<string, unknown>;
+  ip_address: string | null;
+  created_at: string;
+}
+
+export interface BrandActivityLogsFilters {
+  brandId: string;
+  page: number;
+  pageSize: number;
+  eventType?: ActivityEventType;
+  dateFrom?: string;
+  dateTo?: string;
+}
+
+export async function getBrandActivityLogs(
+  filters: BrandActivityLogsFilters
+): Promise<{ rows: BrandActivityLogRow[]; total: number }> {
+  const supabase = await createClient();
+  const from = (filters.page - 1) * filters.pageSize;
+  const to = from + filters.pageSize - 1;
+
+  let query = supabase
+    .from("activity_logs")
+    .select("id, user_id, event_type, metadata, ip_address, created_at", { count: "exact" })
+    .eq("brand_id", filters.brandId);
+
+  if (filters.eventType) query = query.eq("event_type", filters.eventType);
+  if (filters.dateFrom) query = query.gte("created_at", filters.dateFrom);
+  if (filters.dateTo) query = query.lte("created_at", filters.dateTo);
+
+  const { data, count } = await query.order("created_at", { ascending: false }).range(from, to);
+
+  return { rows: data ?? [], total: count ?? 0 };
+}
+
+/** Full export (no pagination) for a single brand's CSV download. */
+export async function getAllBrandActivityLogs(
+  filters: Omit<BrandActivityLogsFilters, "page" | "pageSize">
+): Promise<BrandActivityLogRow[]> {
+  const supabase = await createClient();
+
+  let query = supabase
+    .from("activity_logs")
+    .select("id, user_id, event_type, metadata, ip_address, created_at")
+    .eq("brand_id", filters.brandId);
+
+  if (filters.eventType) query = query.eq("event_type", filters.eventType);
+  if (filters.dateFrom) query = query.gte("created_at", filters.dateFrom);
+  if (filters.dateTo) query = query.lte("created_at", filters.dateTo);
+
+  const { data } = await query.order("created_at", { ascending: false }).limit(10000);
+  return data ?? [];
 }
 
 // ---------------------------------------------------------------------------
@@ -594,6 +836,7 @@ export async function getSessionsList(
   const from = (filters.page - 1) * filters.pageSize;
   const to = from + filters.pageSize - 1;
   const cutoff = new Date(Date.now() - ACTIVE_WINDOW_SECONDS * 1000).toISOString();
+  const adminIds = await getAdminUserIds();
 
   let query = supabase
     .from("user_sessions")
@@ -601,6 +844,7 @@ export async function getSessionsList(
       count: "exact",
     });
 
+  if (adminIds.length > 0) query = query.not("user_id", "in", `(${adminIds.join(",")})`);
   if (filters.status === "active") {
     query = query.eq("is_active", true).gte("last_seen_at", cutoff);
   } else if (filters.status === "inactive") {
@@ -667,11 +911,15 @@ export async function getAllSessionSummaries(): Promise<UserSessionSummaryRow[]>
   const supabase = await createClient();
   const weekAgo = daysAgo(7);
   const today = startOfDay(new Date());
+  const adminIds = await getAdminUserIds();
 
-  const { data } = await supabase
+  let query = supabase
     .from("user_sessions")
     .select("user_id, login_at, logout_at, last_seen_at")
     .gte("login_at", weekAgo.toISOString());
+  if (adminIds.length > 0) query = query.not("user_id", "in", `(${adminIds.join(",")})`);
+
+  const { data } = await query;
 
   const byUser = new Map<string, SessionTimeSummary>();
   for (const s of data ?? []) {

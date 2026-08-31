@@ -1,4 +1,3 @@
-import Script from "next/script";
 import { redirect } from "next/navigation";
 import { getCurrentBrand, getCurrentProfile, getCurrentUser } from "@/lib/supabase/queries";
 import { DashboardShell } from "@/components/dashboard/shell";
@@ -24,7 +23,9 @@ export default async function PurchaseLayout({
   return (
     <DashboardShell brand={brand}>
       <SessionHeartbeat />
-      <Script src="https://checkout.razorpay.com/v1/checkout.js" strategy="afterInteractive" />
+      {/* TEMPORARY: Razorpay checkout.js disabled while DummyPaymentButtons
+          (components/purchase/dummy-payment-buttons.tsx) stands in for real
+          checkout. Restore this <Script> when CheckoutButton is reinstated. */}
       {children}
     </DashboardShell>
   );

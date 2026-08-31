@@ -1,6 +1,10 @@
-import { getUsersList } from "@/lib/admin/queries";
+import { Users2, UserCheck, UserX } from "lucide-react";
+import { getUsersList, getUserStats } from "@/lib/admin/queries";
 import { UsersFiltersBar } from "@/components/admin/users/filters-bar";
 import { UsersTable } from "@/components/admin/users/users-table";
+import { PageHeader } from "@/components/admin/page-header";
+import { RefreshButton } from "@/components/admin/refresh-button";
+import { StatCard } from "@/components/admin/stat-card";
 import type { BrandStatus } from "@/lib/supabase/types";
 
 const PAGE_SIZE = 20;
@@ -16,23 +20,31 @@ export default async function AdminUsersPage({
   const businessType =
     params.businessType && params.businessType !== "all" ? params.businessType : undefined;
 
-  const { rows, total } = await getUsersList({
-    page,
-    pageSize: PAGE_SIZE,
-    search: params.q,
-    status,
-    businessType,
-    dateFrom: params.from,
-    dateTo: params.to,
-  });
+  const [{ rows, total }, stats] = await Promise.all([
+    getUsersList({
+      page,
+      pageSize: PAGE_SIZE,
+      search: params.q,
+      status,
+      businessType,
+      dateFrom: params.from,
+      dateTo: params.to,
+    }),
+    getUserStats(),
+  ]);
 
   return (
     <div>
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold tracking-tight">Users</h1>
-        <p className="text-sm text-muted-foreground">
-          All brands registered on Trusta — search, filter, and manage access.
-        </p>
+      <PageHeader
+        title="Users"
+        description="All brands registered on Trusta — search, filter, and manage access."
+        action={<RefreshButton />}
+      />
+
+      <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <StatCard icon={Users2} label="Total users" count={stats.total} description="All registered brands" />
+        <StatCard icon={UserCheck} label="Active" count={stats.active} description="Not suspended" />
+        <StatCard icon={UserX} label="Suspended" count={stats.suspended} description="Access revoked" />
       </div>
 
       <UsersFiltersBar

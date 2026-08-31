@@ -142,6 +142,10 @@ export function AdminShell({
               {children}
             </motion.div>
           </AnimatePresence>
+
+          <footer className="mt-12 border-t py-6 text-center text-xs text-muted-foreground">
+            © {new Date().getFullYear()} Trusta Brand Portal. All rights reserved.
+          </footer>
         </main>
       </div>
     </div>

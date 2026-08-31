@@ -54,6 +54,20 @@ export async function reviewApproval(
   const { supabase, user, isAdmin } = await requireAdmin();
   if (!isAdmin || !user) return { error: "Not authorized" };
 
+  // Idempotency guard: brand_approvals is an insert, not an update, so unlike
+  // reviewVerification it has no natural "already handled" no-op. Reject a
+  // second decision on a brand that's already past the "verified" stage
+  // (e.g. a race between two tabs, or a retried request) instead of
+  // inserting a duplicate history row.
+  const { data: current } = await supabase
+    .from("brands")
+    .select("status")
+    .eq("id", brandId)
+    .maybeSingle();
+  if (current?.status !== "verified") {
+    return { error: "This brand has already been reviewed" };
+  }
+
   const [{ error: approvalError }, { error: brandError }] = await Promise.all([
     supabase.from("brand_approvals").insert({
       brand_id: brandId,

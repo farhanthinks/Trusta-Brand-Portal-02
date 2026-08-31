@@ -1,6 +1,10 @@
-import { getApprovalHistory, getAdminsList } from "@/lib/admin/queries";
+import { CheckCircle2, XCircle } from "lucide-react";
+import { getApprovalHistory, getAdminsList, getApprovalStats } from "@/lib/admin/queries";
 import { ApprovalsFiltersBar } from "@/components/admin/approvals/approvals-filters-bar";
 import { ApprovalsTable } from "@/components/admin/approvals/approvals-table";
+import { PageHeader } from "@/components/admin/page-header";
+import { RefreshButton } from "@/components/admin/refresh-button";
+import { StatCard } from "@/components/admin/stat-card";
 import type { ApprovalHistoryFilters } from "@/lib/admin/queries";
 
 const PAGE_SIZE = 20;
@@ -25,18 +29,33 @@ export default async function AdminApprovalsPage({
     dateTo: params.to,
   };
 
-  const [{ rows, total }, admins] = await Promise.all([
+  const [{ rows, total }, admins, stats] = await Promise.all([
     getApprovalHistory({ ...filters, page, pageSize: PAGE_SIZE }),
     getAdminsList(),
+    getApprovalStats(),
   ]);
 
   return (
     <div>
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold tracking-tight">Approval history</h1>
-        <p className="text-sm text-muted-foreground">
-          Every verification and approval decision made across Trusta.
-        </p>
+      <PageHeader
+        title="Approval history"
+        description="Every verification and approval decision made across Trusta."
+        action={<RefreshButton />}
+      />
+
+      <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <StatCard
+          icon={CheckCircle2}
+          label="Approved"
+          count={stats.approved}
+          description="Brands approved to date"
+        />
+        <StatCard
+          icon={XCircle}
+          label="Rejected"
+          count={stats.rejected}
+          description="Brands rejected to date"
+        />
       </div>
 
       <ApprovalsFiltersBar

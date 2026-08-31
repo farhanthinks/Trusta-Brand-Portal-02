@@ -4,6 +4,7 @@ import { QrCode, ArrowRight } from "lucide-react";
 import { getCurrentBrand, getBrandEntitlements } from "@/lib/supabase/queries";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { YourPlanCard } from "@/components/dashboard/your-plan-card";
 
 export default async function DashboardPage() {
   const brand = await getCurrentBrand();
@@ -32,15 +33,12 @@ export default async function DashboardPage() {
         </CardContent>
       </Card>
 
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2">
         <StatCard label="Static QR credits" value={entitlements?.qr_quota ?? 0} />
         <StatCard label="Dynamic QR credits" value={entitlements?.dynamic_qr_quota ?? 0} />
-        <StatCard
-          label="Subscription plan"
-          value={entitlements?.subscription_plan ?? "None"}
-          isText
-        />
       </div>
+
+      <YourPlanCard entitlements={entitlements} />
 
       <Card>
         <CardHeader>

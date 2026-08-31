@@ -1,15 +1,21 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { FileText } from "lucide-react";
+import { Building2, MapPin, FileText } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Badge } from "@/components/ui/badge";
-import { formatDate } from "@/lib/format";
+import { ListItemCard } from "@/components/admin/list-item-card";
+import { formatDateTime } from "@/lib/format";
 import type { Brand } from "@/lib/supabase/types";
 
-const STATUS_LABEL: Record<string, string> = {
-  verification_pending: "Verification pending",
-  verified: "Awaiting approval",
+const STATUS_META: Record<string, { label: string; className: string }> = {
+  verification_pending: {
+    label: "Verification pending",
+    className: "bg-amber-100 text-amber-700",
+  },
+  verified: {
+    label: "Awaiting approval",
+    className: "bg-blue-100 text-blue-700",
+  },
 };
 
 function initialsFor(name: string | null) {
@@ -33,43 +39,55 @@ export function BrandCard({
   dateLabel: string;
   onClick: () => void;
 }) {
+  const status = STATUS_META[brand.status] ?? { label: brand.status, className: "bg-secondary" };
+
   return (
-    <motion.button
-      type="button"
-      onClick={onClick}
+    <motion.div
       layout
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -8 }}
-      whileHover={{ y: -2 }}
       transition={{ duration: 0.2 }}
-      className="flex w-full items-center gap-4 rounded-xl border bg-white p-4 text-left shadow-sm transition-shadow hover:border-primary/30 hover:shadow-md"
     >
-      <Avatar className="size-11 shrink-0 border">
-        {brand.logo_url && <AvatarImage src={brand.logo_url} alt={brand.business_name ?? ""} />}
-        <AvatarFallback className="bg-red-50 text-sm font-semibold text-primary">
-          {initialsFor(brand.business_name)}
-        </AvatarFallback>
-      </Avatar>
-
-      <div className="min-w-0 flex-1">
-        <p className="truncate font-medium">{brand.business_name ?? "Unnamed business"}</p>
-        <p className="text-sm text-muted-foreground">
-          {dateLabel} {formatDate(brand.updated_at)}
-        </p>
-      </div>
-
-      <div className="flex shrink-0 flex-col items-end gap-1.5">
-        <Badge variant="secondary" className="whitespace-nowrap">
-          {STATUS_LABEL[brand.status] ?? brand.status}
-        </Badge>
-        {docCount > 0 && (
-          <span className="flex items-center gap-1 text-xs text-muted-foreground">
-            <FileText className="size-3" />
-            {docCount} doc{docCount === 1 ? "" : "s"}
+      <ListItemCard
+        onClick={onClick}
+        avatar={
+          <Avatar className="size-12 shrink-0 border">
+            {brand.logo_url && <AvatarImage src={brand.logo_url} alt={brand.business_name ?? ""} />}
+            <AvatarFallback className="bg-red-50 text-sm font-semibold text-primary">
+              {initialsFor(brand.business_name)}
+            </AvatarFallback>
+          </Avatar>
+        }
+        title={brand.business_name ?? "Unnamed business"}
+        subtitle={brand.contact_number ?? undefined}
+        meta={[
+          ...(brand.business_type ? [{ icon: Building2, label: brand.business_type }] : []),
+          ...(brand.city || brand.state
+            ? [{ icon: MapPin, label: [brand.city, brand.state].filter(Boolean).join(", ") }]
+            : []),
+        ]}
+        badge={
+          <span
+            className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-medium ${status.className}`}
+          >
+            <span className="size-1.5 rounded-full bg-current" />
+            {status.label}
           </span>
-        )}
-      </div>
-    </motion.button>
+        }
+        trailing={
+          <span className="flex items-center gap-1 text-xs text-muted-foreground">
+            {docCount > 0 ? (
+              <>
+                <FileText className="size-3" />
+                {docCount} document{docCount === 1 ? "" : "s"}
+              </>
+            ) : (
+              `${dateLabel} ${formatDateTime(brand.updated_at)}`
+            )}
+          </span>
+        }
+      />
+    </motion.div>
   );
 }

@@ -1,5 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { BrandsQueue } from "@/components/admin/brands/brands-queue";
+import { PageHeader } from "@/components/admin/page-header";
+import { RefreshButton } from "@/components/admin/refresh-button";
 import { reviewApproval, reviewVerification } from "./actions";
 import type { BrandVerification } from "@/lib/supabase/types";
 
@@ -68,12 +70,11 @@ export default async function AdminBrandsPage() {
 
   return (
     <div>
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold tracking-tight">Brand review</h1>
-        <p className="text-sm text-muted-foreground">
-          Review uploaded documents and approve or reject brand applications.
-        </p>
-      </div>
+      <PageHeader
+        title="Brand review"
+        description="Review uploaded documents and approve or reject brand applications."
+        action={<RefreshButton />}
+      />
 
       <BrandsQueue
         verificationQueue={verificationQueue}

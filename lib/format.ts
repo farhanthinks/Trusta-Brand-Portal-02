@@ -22,9 +22,17 @@ export function formatDuration(totalSeconds: number | null): string {
   return `${seconds}s`;
 }
 
+// Timestamps are stored in UTC (Postgres timestamptz). Display always
+// converts to IST explicitly — without a fixed timeZone, toLocaleString
+// falls back to the *server process's* local timezone, which drifts
+// between a dev machine and a UTC-default production host and made
+// "recent" activity look stale/wrong depending on where it rendered.
+const DISPLAY_TIMEZONE = "Asia/Kolkata";
+
 export function formatDateTime(iso: string | null): string {
   if (!iso) return "—";
   return new Date(iso).toLocaleString("en-IN", {
+    timeZone: DISPLAY_TIMEZONE,
     day: "2-digit",
     month: "short",
     year: "numeric",
@@ -33,9 +41,18 @@ export function formatDateTime(iso: string | null): string {
   });
 }
 
+/** "103.141.55.20" -> "103.141.••.••". Passes through anything not shaped like IPv4. */
+export function maskIp(ip: string | null): string {
+  if (!ip) return "—";
+  const parts = ip.split(".");
+  if (parts.length !== 4) return ip;
+  return `${parts[0]}.${parts[1]}.••.••`;
+}
+
 export function formatDate(iso: string | null): string {
   if (!iso) return "—";
   return new Date(iso).toLocaleDateString("en-IN", {
+    timeZone: DISPLAY_TIMEZONE,
     day: "2-digit",
     month: "short",
     year: "numeric",

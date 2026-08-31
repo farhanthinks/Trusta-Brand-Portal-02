@@ -39,9 +39,24 @@ export type ActivityEventType =
 export interface ActivityLog {
   id: string;
   user_id: string;
+  brand_id: string | null;
   event_type: ActivityEventType;
   metadata: Record<string, unknown>;
+  ip_address: string | null;
   created_at: string;
+}
+
+export interface BrandActivitySummaryRow {
+  brand_id: string;
+  business_name: string | null;
+  email: string | null;
+  logo_url: string | null;
+  status: BrandStatus;
+  last_event_type: ActivityEventType | null;
+  last_event_at: string | null;
+  events_today: number;
+  total_events: number;
+  total_count: number;
 }
 
 export interface UserSession {
@@ -52,6 +67,19 @@ export interface UserSession {
   last_seen_at: string;
   duration_seconds: number | null;
   is_active: boolean;
+  created_at: string;
+}
+
+export type AdminActionType = "user_deleted";
+
+export interface AdminAction {
+  id: string;
+  action_type: AdminActionType;
+  performed_by: string | null;
+  target_user_id: string | null;
+  target_email: string | null;
+  target_business_name: string | null;
+  details: Record<string, unknown>;
   created_at: string;
 }
 
@@ -212,9 +240,29 @@ export interface Database {
         Update: Partial<UserSession>;
         Relationships: Relationships;
       };
+      admin_actions: {
+        Row: AdminAction;
+        Insert: Partial<AdminAction> & { action_type: AdminActionType };
+        Update: Partial<AdminAction>;
+        Relationships: Relationships;
+      };
     };
     Views: Record<string, never>;
-    Functions: Record<string, never>;
+    Functions: {
+      get_brand_activity_summary: {
+        Args: {
+          p_search?: string | null;
+          p_user_id?: string | null;
+          p_event_type?: string | null;
+          p_date_from?: string | null;
+          p_date_to?: string | null;
+          p_today_start?: string | null;
+          p_limit?: number;
+          p_offset?: number;
+        };
+        Returns: BrandActivitySummaryRow[];
+      };
+    };
     Enums: Record<string, never>;
     CompositeTypes: Record<string, never>;
   };

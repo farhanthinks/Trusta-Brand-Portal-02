@@ -2,17 +2,21 @@
 
 import { useState } from "react";
 import { toast } from "sonner";
-import { MoreHorizontal, ShieldCheck, ShieldOff, Ban, CheckCircle2, Download } from "lucide-react";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+  MoreHorizontal,
+  ShieldCheck,
+  ShieldOff,
+  Ban,
+  CheckCircle2,
+  Download,
+  Trash2,
+  Loader2,
+  Building2,
+  Clock,
+} from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -20,17 +24,35 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { setSuspended, setAdminRole, bulkSetSuspended } from "@/app/(admin)/admin/users/actions";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { setSuspended, setAdminRole, bulkSetSuspended, deleteBrandUser } from "@/app/(admin)/admin/users/actions";
 import { UserDetailSheet } from "./user-detail-sheet";
 import { AdminPagination } from "@/components/admin/pagination";
+import { ListItemCard } from "@/components/admin/list-item-card";
+import { EmptyState } from "@/components/admin/empty-state";
 import { formatDate } from "@/lib/format";
 import { toCsv, downloadCsv } from "@/lib/csv";
 import type { UserListRow } from "@/lib/admin/queries";
 
-function statusVariant(status: string): "default" | "secondary" | "destructive" | "outline" {
-  if (status === "approved") return "default";
-  if (status === "rejected") return "destructive";
-  return "secondary";
+const STATUS_STYLES: Record<string, string> = {
+  approved: "bg-emerald-100 text-emerald-700",
+  rejected: "bg-red-100 text-red-700",
+  verification_pending: "bg-amber-100 text-amber-700",
+  verified: "bg-blue-100 text-blue-700",
+  profile_completed: "bg-secondary text-secondary-foreground",
+  registered: "bg-secondary text-secondary-foreground",
+};
+
+function initialsFor(name: string | null) {
+  if (!name) return "?";
+  return name.split(" ").map((w) => w[0]).slice(0, 2).join("").toUpperCase();
 }
 
 export function UsersTable({
@@ -51,6 +73,8 @@ export function UsersTable({
   const [sheetOpen, setSheetOpen] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [bulkBusy, setBulkBusy] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<UserListRow | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const allSelected = rows.length > 0 && rows.every((r) => selected.has(r.user_id));
 
@@ -99,6 +123,20 @@ export function UsersTable({
     }
   }
 
+  async function handleDelete() {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    const result = await deleteBrandUser(deleteTarget.user_id);
+    setDeleting(false);
+
+    if (result.error) {
+      toast.error(result.error);
+      return;
+    }
+    toast.success(`${deleteTarget.business_name ?? "Brand"} deleted`);
+    setDeleteTarget(null);
+  }
+
   function handleExportSelected() {
     const selectedRows = rows.filter((r) => selected.has(r.user_id));
     const target = selectedRows.length > 0 ? selectedRows : rows;
@@ -118,10 +156,13 @@ export function UsersTable({
   }
 
   return (
-    <div className="overflow-hidden rounded-xl border bg-white">
+    <div>
       {selected.size > 0 && (
-        <div className="flex items-center justify-between border-b bg-red-50/60 px-4 py-2.5">
-          <span className="text-sm font-medium">{selected.size} selected</span>
+        <div className="mb-3 flex items-center justify-between rounded-xl border bg-red-50/60 px-4 py-2.5">
+          <label className="flex items-center gap-2 text-sm font-medium">
+            <Checkbox checked={allSelected} onCheckedChange={toggleAll} />
+            {selected.size} selected
+          </label>
           <div className="flex gap-2">
             <Button size="sm" variant="outline" onClick={() => handleBulkSuspend(true)} disabled={bulkBusy}>
               <Ban className="size-4" />
@@ -139,121 +180,156 @@ export function UsersTable({
         </div>
       )}
 
-      <div className="overflow-x-auto">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead className="w-10">
-                <Checkbox checked={allSelected} onCheckedChange={toggleAll} />
-              </TableHead>
-              <TableHead>Name</TableHead>
-              <TableHead>Email</TableHead>
-              <TableHead>Business type</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Joined</TableHead>
-              <TableHead>Last active</TableHead>
-              <TableHead className="w-10" />
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {rows.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={8} className="py-10 text-center text-muted-foreground">
-                  No users match these filters.
-                </TableCell>
-              </TableRow>
-            ) : (
-              rows.map((row) => (
-                <TableRow
-                  key={row.brand_id}
-                  className="cursor-pointer"
-                  onClick={(e) => {
-                    if ((e.target as HTMLElement).closest("[data-no-row-click]")) return;
-                    setDetailRow(row);
-                    setSheetOpen(true);
-                  }}
-                >
-                  <TableCell data-no-row-click onClick={(e) => e.stopPropagation()}>
-                    <Checkbox
-                      checked={selected.has(row.user_id)}
-                      onCheckedChange={() => toggleOne(row.user_id)}
-                    />
-                  </TableCell>
-                  <TableCell className="font-medium">
-                    {row.business_name ?? "Unnamed business"}
-                    {row.is_admin && (
-                      <Badge variant="outline" className="ml-2 text-[10px]">
-                        admin
-                      </Badge>
-                    )}
-                    {row.is_suspended && (
-                      <Badge variant="destructive" className="ml-2 text-[10px]">
-                        suspended
-                      </Badge>
-                    )}
-                  </TableCell>
-                  <TableCell className="text-muted-foreground">{row.email ?? "—"}</TableCell>
-                  <TableCell>{row.business_type ?? "—"}</TableCell>
-                  <TableCell>
-                    <Badge variant={statusVariant(row.status)} className="capitalize">
-                      {row.status.replace(/_/g, " ")}
+      {rows.length === 0 ? (
+        <EmptyState
+          icon={ShieldCheck}
+          heading="No users found"
+          description="No brands match these filters."
+        />
+      ) : (
+        <div className="space-y-3">
+          {rows.map((row) => (
+            <ListItemCard
+              key={row.brand_id}
+              onClick={() => {
+                setDetailRow(row);
+                setSheetOpen(true);
+              }}
+              leading={
+                <div onClick={(e) => e.stopPropagation()}>
+                  <Checkbox
+                    checked={selected.has(row.user_id)}
+                    onCheckedChange={() => toggleOne(row.user_id)}
+                  />
+                </div>
+              }
+              avatar={
+                <Avatar className="size-12 shrink-0 border">
+                  <AvatarFallback className="bg-red-50 text-sm font-semibold text-primary">
+                    {initialsFor(row.business_name)}
+                  </AvatarFallback>
+                </Avatar>
+              }
+              title={
+                <span className="flex flex-wrap items-center gap-2">
+                  {row.business_name ?? "Unnamed business"}
+                  {row.is_admin && (
+                    <Badge variant="outline" className="text-[10px]">
+                      admin
                     </Badge>
-                  </TableCell>
-                  <TableCell>{formatDate(row.created_at)}</TableCell>
-                  <TableCell>{formatDate(row.last_active_at)}</TableCell>
-                  <TableCell data-no-row-click onClick={(e) => e.stopPropagation()}>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" disabled={busyId === row.user_id}>
-                          <MoreHorizontal className="size-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => handleSuspendToggle(row)}>
-                          {row.is_suspended ? (
-                            <>
-                              <CheckCircle2 className="size-4" />
-                              Reactivate
-                            </>
-                          ) : (
-                            <>
-                              <Ban className="size-4" />
-                              Suspend
-                            </>
-                          )}
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => handleAdminToggle(row)}>
-                          {row.is_admin ? (
-                            <>
-                              <ShieldOff className="size-4" />
-                              Revoke admin
-                            </>
-                          ) : (
-                            <>
-                              <ShieldCheck className="size-4" />
-                              Promote to admin
-                            </>
-                          )}
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </TableCell>
-                </TableRow>
-              ))
-            )}
-          </TableBody>
-        </Table>
+                  )}
+                  {row.is_suspended && (
+                    <Badge variant="destructive" className="text-[10px]">
+                      suspended
+                    </Badge>
+                  )}
+                </span>
+              }
+              subtitle={row.email ?? undefined}
+              meta={[
+                ...(row.business_type ? [{ icon: Building2, label: row.business_type }] : []),
+                { icon: Clock, label: `Joined ${formatDate(row.created_at)}` },
+                ...(row.last_active_at
+                  ? [{ icon: Clock, label: `Active ${formatDate(row.last_active_at)}` }]
+                  : []),
+              ]}
+              badge={
+                <span
+                  className={`inline-flex items-center whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-medium capitalize ${
+                    STATUS_STYLES[row.status] ?? "bg-secondary text-secondary-foreground"
+                  }`}
+                >
+                  {row.status.replace(/_/g, " ")}
+                </span>
+              }
+              trailing={
+                <div onClick={(e) => e.stopPropagation()}>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" size="icon" disabled={busyId === row.user_id}>
+                        <MoreHorizontal className="size-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem onClick={() => handleSuspendToggle(row)}>
+                        {row.is_suspended ? (
+                          <>
+                            <CheckCircle2 className="size-4" />
+                            Reactivate
+                          </>
+                        ) : (
+                          <>
+                            <Ban className="size-4" />
+                            Suspend
+                          </>
+                        )}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => handleAdminToggle(row)}>
+                        {row.is_admin ? (
+                          <>
+                            <ShieldOff className="size-4" />
+                            Revoke admin
+                          </>
+                        ) : (
+                          <>
+                            <ShieldCheck className="size-4" />
+                            Promote to admin
+                          </>
+                        )}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem variant="destructive" onClick={() => setDeleteTarget(row)}>
+                        <Trash2 className="size-4" />
+                        Delete
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+              }
+              showChevron={false}
+            />
+          ))}
+        </div>
+      )}
+
+      <div className="mt-4 overflow-hidden rounded-xl border bg-white">
+        <AdminPagination
+          page={page}
+          pageSize={pageSize}
+          total={total}
+          basePath="/admin/users"
+          searchParams={searchParams}
+        />
       </div>
 
-      <AdminPagination
-        page={page}
-        pageSize={pageSize}
-        total={total}
-        basePath="/admin/users"
-        searchParams={searchParams}
-      />
-
       <UserDetailSheet row={detailRow} open={sheetOpen} onOpenChange={setSheetOpen} />
+
+      <Dialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => {
+          if (!open && !deleting) setDeleteTarget(null);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              Delete {deleteTarget?.business_name ?? "this brand"}?
+            </DialogTitle>
+            <DialogDescription>
+              This will permanently delete this brand and all associated data.
+              This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteTarget(null)} disabled={deleting}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={handleDelete} disabled={deleting}>
+              {deleting ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
+              Delete permanently
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
