@@ -1,3 +1,5 @@
+"use client";
+
 import {
   Table,
   TableBody,
@@ -46,7 +48,7 @@ export function ApprovalsTable({
       <div className="flex items-center justify-between border-b px-4 py-3">
         <span className="text-sm text-muted-foreground">{total} decisions</span>
         <ExportCsvButton
-          fetchRows={() => exportApprovalHistory(exportFilters)}
+          fetchRows={exportApprovalHistory.bind(null, exportFilters)}
           filenamePrefix="trusta-approval-history"
           toRow={(row: ApprovalHistoryRow) => ({
             brand: row.business_name,

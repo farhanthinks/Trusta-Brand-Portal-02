@@ -1,3 +1,5 @@
+"use client";
+
 import {
   Table,
   TableBody,
@@ -33,7 +35,7 @@ export function LogsTable({
       <div className="flex items-center justify-between border-b px-4 py-3">
         <span className="text-sm text-muted-foreground">{total} events</span>
         <ExportCsvButton
-          fetchRows={() => exportActivityLogs(exportFilters)}
+          fetchRows={exportActivityLogs.bind(null, exportFilters)}
           filenamePrefix="trusta-activity-logs"
           toRow={(row: RecentActivityRow) => ({
             user: displayNameFor(row.business_name, row.email),
