@@ -685,23 +685,40 @@ export interface BrandActivitySummaryFilters {
 
 export async function getBrandActivitySummary(
   filters: BrandActivitySummaryFilters
-): Promise<{ rows: BrandActivitySummaryRow[]; total: number }> {
+): Promise<{ rows: BrandActivitySummaryRow[]; total: number; page: number }> {
   const supabase = await createClient();
-  const offset = (filters.page - 1) * filters.pageSize;
 
-  const { data, error } = await supabase.rpc("get_brand_activity_summary", {
-    p_search: filters.search || null,
-    p_user_id: filters.userId || null,
-    p_event_type: filters.eventType || null,
-    p_date_from: filters.dateFrom ? new Date(filters.dateFrom).toISOString() : null,
-    p_date_to: filters.dateTo ? new Date(filters.dateTo).toISOString() : null,
-    p_today_start: startOfDay(new Date()).toISOString(),
-    p_limit: filters.pageSize,
-    p_offset: offset,
-  });
+  async function fetchPage(page: number) {
+    const offset = (page - 1) * filters.pageSize;
+    return supabase.rpc("get_brand_activity_summary", {
+      p_search: filters.search || null,
+      p_user_id: filters.userId || null,
+      p_event_type: filters.eventType || null,
+      p_date_from: filters.dateFrom ? new Date(filters.dateFrom).toISOString() : null,
+      p_date_to: filters.dateTo ? new Date(filters.dateTo).toISOString() : null,
+      p_today_start: startOfDay(new Date()).toISOString(),
+      p_limit: filters.pageSize,
+      p_offset: offset,
+    });
+  }
 
-  if (error || !data) return { rows: [], total: 0 };
-  return { rows: data, total: data[0]?.total_count ?? 0 };
+  let { data, error } = await fetchPage(filters.page);
+  let effectivePage = filters.page;
+
+  // total_count rides on the returned rows (a window function evaluated
+  // before LIMIT/OFFSET, so it's correct for any page that has at least one
+  // row) — but a page with zero rows carries no row to read it from at all.
+  // That's only reachable via a stale/hand-edited ?page=N (Next is always
+  // disabled once a real last page is known), so rather than show a broken
+  // "0 total" state, self-heal back to page 1 — and report that as the
+  // effective page so the pagination UI stays consistent with what's shown.
+  if (!error && data && data.length === 0 && filters.page > 1) {
+    ({ data, error } = await fetchPage(1));
+    effectivePage = 1;
+  }
+
+  if (error || !data) return { rows: [], total: 0, page: effectivePage };
+  return { rows: data, total: data[0]?.total_count ?? 0, page: effectivePage };
 }
 
 // ---------------------------------------------------------------------------

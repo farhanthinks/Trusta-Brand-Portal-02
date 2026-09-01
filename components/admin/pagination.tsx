@@ -51,7 +51,7 @@ export function AdminPagination({
               Previous
             </Link>
           ) : (
-            <span>
+            <span className="inline-flex items-center gap-1.5">
               <ChevronLeft className="size-4" />
               Previous
             </span>
@@ -73,7 +73,7 @@ export function AdminPagination({
               <ChevronRight className="size-4" />
             </Link>
           ) : (
-            <span>
+            <span className="inline-flex items-center gap-1.5">
               Next
               <ChevronRight className="size-4" />
             </span>

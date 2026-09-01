@@ -27,7 +27,7 @@ export default async function AdminLogsPage({
     dateTo: params.to,
   };
 
-  const [{ rows, total }, users] = await Promise.all([
+  const [{ rows, total, page: effectivePage }, users] = await Promise.all([
     getBrandActivitySummary({ ...filters, page, pageSize: PAGE_SIZE }),
     getAllUsersForFilter(),
   ]);
@@ -54,7 +54,13 @@ export default async function AdminLogsPage({
 
       <p className="mb-3 text-sm text-muted-foreground">{total} brands found</p>
 
-      <ActivityBrandTable rows={rows} page={page} pageSize={PAGE_SIZE} total={total} searchParams={params} />
+      <ActivityBrandTable
+        rows={rows}
+        page={effectivePage}
+        pageSize={PAGE_SIZE}
+        total={total}
+        searchParams={params}
+      />
     </div>
   );
 }

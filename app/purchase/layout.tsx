@@ -1,5 +1,10 @@
 import { redirect } from "next/navigation";
-import { getCurrentBrand, getCurrentProfile, getCurrentUser } from "@/lib/supabase/queries";
+import {
+  getCurrentBrand,
+  getCurrentProfile,
+  getCurrentUser,
+  getBrandEntitlements,
+} from "@/lib/supabase/queries";
 import { DashboardShell } from "@/components/dashboard/shell";
 import { SessionHeartbeat } from "@/components/session-heartbeat";
 import { logout } from "@/app/(auth)/actions";
@@ -9,19 +14,22 @@ export default async function PurchaseLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const user = await getCurrentUser();
+  const [user, profile, brand] = await Promise.all([
+    getCurrentUser(),
+    getCurrentProfile(),
+    getCurrentBrand(),
+  ]);
+
   if (!user) redirect("/login");
-
-  const profile = await getCurrentProfile();
   if (profile?.is_suspended) await logout();
-
-  const brand = await getCurrentBrand();
   if (!brand || brand.status !== "approved") {
     redirect("/onboarding");
   }
 
+  const entitlements = await getBrandEntitlements(brand.id);
+
   return (
-    <DashboardShell brand={brand}>
+    <DashboardShell brand={brand} email={profile?.email ?? null} entitlements={entitlements}>
       <SessionHeartbeat />
       {/* TEMPORARY: Razorpay checkout.js disabled while DummyPaymentButtons
           (components/purchase/dummy-payment-buttons.tsx) stands in for real
