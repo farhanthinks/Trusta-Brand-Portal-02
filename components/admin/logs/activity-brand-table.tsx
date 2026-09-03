@@ -29,17 +29,20 @@ export function ActivityBrandTable({
   }
 
   return (
-    <div className="overflow-hidden rounded-xl border bg-white">
+    <div className="overflow-hidden rounded-xl border bg-white shadow-sm">
+      {/* min-w keeps columns from being crushed illegibly — contained
+          horizontal scroll only kicks in below that, i.e. on small
+          screens, never on a normal desktop width. */}
       <div className="overflow-x-auto">
-        <Table>
+        <Table className="w-full min-w-[780px] table-fixed">
           <TableHeader>
-            <TableRow>
-              <TableHead>Brand</TableHead>
-              <TableHead>Last Activity</TableHead>
-              <TableHead>Last Event</TableHead>
-              <TableHead>Events Today</TableHead>
-              <TableHead>Total Events</TableHead>
-              <TableHead className="w-10" />
+            <TableRow className="hover:bg-transparent">
+              <TableHead className="w-[28%] py-3">Brand</TableHead>
+              <TableHead className="w-[18%] py-3">Last Activity</TableHead>
+              <TableHead className="w-[24%] py-3">Last Event</TableHead>
+              <TableHead className="w-[12%] py-3 text-center">Events Today</TableHead>
+              <TableHead className="w-[12%] py-3 text-center">Total Events</TableHead>
+              <TableHead className="w-[6%] py-3 text-center">Action</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>

@@ -1,6 +1,7 @@
 import {
   LogIn,
   LogOut,
+  TimerOff,
   UserCog,
   ShoppingCart,
   UploadCloud,
@@ -31,6 +32,12 @@ export const EVENT_META: Record<
 > = {
   login: { label: "Logged in", icon: LogIn, color: "text-emerald-600", category: "auth" },
   logout: { label: "Logged out", icon: LogOut, color: "text-muted-foreground", category: "auth" },
+  session_expired: {
+    label: "Session expired",
+    icon: TimerOff,
+    color: "text-amber-600",
+    category: "auth",
+  },
   profile_update: {
     label: "Profile updated",
     icon: UserCog,
@@ -60,6 +67,7 @@ export const EVENT_META: Record<
 export const EVENT_TYPE_OPTIONS: ActivityEventType[] = [
   "login",
   "logout",
+  "session_expired",
   "profile_update",
   "purchase",
   "upload_attempt",

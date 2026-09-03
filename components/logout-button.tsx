@@ -14,11 +14,13 @@ interface LogoutButtonProps extends VariantProps<typeof buttonVariants> {
 }
 
 /**
- * Logs out without waiting on a full server round-trip: clears the local
- * session immediately (`scope: "local"` skips the network call to revoke
- * the session on Supabase's side) and navigates right away. Server-side
- * bookkeeping (activity log, session close-out) fires in the background via
- * `keepalive` so it survives the navigation without blocking the click.
+ * Awaits the server-side logout bookkeeping (activity log, session
+ * close-out) BEFORE clearing the local Supabase session, so that work is
+ * guaranteed to land before this browser's auth cookies disappear — not
+ * fire-and-forget, since an unawaited call has no guarantee of completing
+ * once navigation starts. `keepalive: true` stays on as defense in depth.
+ * `scope: "local"` on signOut skips the network call to revoke the session
+ * on Supabase's side, since server-side sign-out already happened above.
  */
 export function LogoutButton({ className, variant = "ghost", size = "sm", children }: LogoutButtonProps) {
   const [pending, startTransition] = useTransition();
@@ -26,7 +28,11 @@ export function LogoutButton({ className, variant = "ghost", size = "sm", childr
 
   function handleLogout() {
     startTransition(async () => {
-      fetch("/api/auth/logout", { method: "POST", keepalive: true }).catch(() => {});
+      try {
+        await fetch("/api/auth/logout", { method: "POST", keepalive: true });
+      } catch {
+        // Best-effort — still proceed with the client-side sign-out below.
+      }
 
       const supabase = createClient();
       await supabase.auth.signOut({ scope: "local" });

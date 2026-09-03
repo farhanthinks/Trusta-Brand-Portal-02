@@ -1,8 +1,13 @@
-import { getSessionsList, getAllSessionSummaries } from "@/lib/admin/queries";
+import { Radio, CalendarClock, ListChecks, Clock3 } from "lucide-react";
+import { getSessionsList, getAllSessionSummaries, getSessionStats } from "@/lib/admin/queries";
+import { sweepExpiredSessions } from "@/lib/admin/sessions";
 import { SessionsFiltersBar } from "@/components/admin/sessions/sessions-filters-bar";
 import { SessionsTable } from "@/components/admin/sessions/sessions-table";
 import { SessionSummaryTable } from "@/components/admin/sessions/session-summary-table";
 import { LiveRefresh } from "@/components/admin/live-refresh";
+import { PageHeader } from "@/components/admin/page-header";
+import { StatCard } from "@/components/admin/stat-card";
+import { formatDuration } from "@/lib/format";
 
 // This page's whole point is showing current state — never let it serve a
 // cached render. Also belt-and-suspenders against the fetch/data cache,
@@ -23,23 +28,58 @@ export default async function AdminSessionsPage({
   const status =
     params.status === "active" || params.status === "inactive" ? params.status : undefined;
 
-  const [{ rows, total }, summaries] = await Promise.all([
+  // Close out any session that's timed out since the last heartbeat swept
+  // it, so this render never shows a session as "Active" that's actually
+  // just gone quiet — see lib/admin/sessions.ts.
+  await sweepExpiredSessions();
+
+  const [{ rows, total }, summaries, stats] = await Promise.all([
     getSessionsList({ page, pageSize: PAGE_SIZE, status }),
     getAllSessionSummaries(),
+    getSessionStats(),
   ]);
 
   return (
     <div>
       <LiveRefresh intervalMs={15000} />
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold tracking-tight">Active sessions</h1>
-        <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
-          Login/logout history and time-on-platform tracking.
-          <span className="inline-flex items-center gap-1 text-xs text-emerald-600">
-            <span className="size-1.5 animate-pulse rounded-full bg-emerald-500" />
-            live
+      <PageHeader
+        title="Active sessions"
+        description={
+          <span className="flex items-center gap-1.5">
+            Login/logout history and time-on-platform tracking.
+            <span className="inline-flex items-center gap-1 text-xs text-emerald-600">
+              <span className="size-1.5 animate-pulse rounded-full bg-emerald-500" />
+              live
+            </span>
           </span>
-        </p>
+        }
+      />
+
+      <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <StatCard
+          icon={Radio}
+          label="Active Now"
+          count={stats.activeNow}
+          description="Live within the last 3 min"
+        />
+        <StatCard
+          icon={CalendarClock}
+          label="Sessions Today"
+          count={stats.sessionsToday}
+          description="Logins since midnight IST"
+        />
+        <StatCard
+          icon={ListChecks}
+          label="Total Sessions"
+          count={stats.totalSessions}
+          description="All recorded sessions"
+        />
+        <StatCard
+          icon={Clock3}
+          label="Total Time"
+          count={formatDuration(stats.totalTimeSeconds)}
+          description="Cumulative time on platform"
+        />
       </div>
 
       <div className="mb-6">

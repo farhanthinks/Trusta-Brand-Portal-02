@@ -21,6 +21,12 @@ export interface ActivityFiltersUser {
  * event + date range) and the per-brand detail page (event + date range
  * only — `users` and `search` are omitted there since a single brand's
  * event set is already narrow).
+ *
+ * Single-line layout, no stacked label-above-input — the Select
+ * placeholders ("All users" / "All events") and inline "From"/"To" text
+ * already say what each field is, so a separate label row was just adding
+ * height without adding clarity. Labels are kept for screen readers via
+ * sr-only rather than dropped outright.
  */
 export function ActivityFilters({
   basePath,
@@ -42,27 +48,35 @@ export function ActivityFilters({
     <form
       method="get"
       action={basePath}
-      className="mb-4 flex flex-wrap items-end gap-3 rounded-xl border bg-white p-4"
+      className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border bg-white px-4 py-3 shadow-sm"
     >
       {showSearch && (
-        <div className="min-w-[220px] flex-1">
-          <label className="mb-1 block text-xs font-medium text-muted-foreground">Search</label>
-          <div className="relative">
-            <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-            <Input name="q" defaultValue={defaults.q} placeholder={searchPlaceholder} className="pl-8" />
-          </div>
+        <div className="relative min-w-[200px] flex-1 basis-56">
+          <label htmlFor="activity-filter-q" className="sr-only">
+            Search
+          </label>
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            id="activity-filter-q"
+            name="q"
+            defaultValue={defaults.q}
+            placeholder={searchPlaceholder}
+            className="pl-8"
+          />
         </div>
       )}
 
       {users && (
-        <div className="w-52">
-          <label className="mb-1 block text-xs font-medium text-muted-foreground">User</label>
+        <div className="w-36 shrink-0">
+          <label htmlFor="activity-filter-user" className="sr-only">
+            User
+          </label>
           <Select name="userId" defaultValue={defaults.userId ?? "all"}>
-            <SelectTrigger>
-              <SelectValue placeholder="All users" />
+            <SelectTrigger id="activity-filter-user">
+              <SelectValue placeholder="All Users" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All users</SelectItem>
+              <SelectItem value="all">All Users</SelectItem>
               {users.map((u) => (
                 <SelectItem key={u.id} value={u.id}>
                   {u.label}
@@ -73,14 +87,16 @@ export function ActivityFilters({
         </div>
       )}
 
-      <div className="w-52">
-        <label className="mb-1 block text-xs font-medium text-muted-foreground">Event</label>
+      <div className="w-36 shrink-0">
+        <label htmlFor="activity-filter-event" className="sr-only">
+          Event
+        </label>
         <Select name="eventType" defaultValue={defaults.eventType ?? "all"}>
-          <SelectTrigger>
-            <SelectValue placeholder="All events" />
+          <SelectTrigger id="activity-filter-event">
+            <SelectValue placeholder="All Events" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">All events</SelectItem>
+            <SelectItem value="all">All Events</SelectItem>
             {EVENT_TYPE_OPTIONS.map((e) => (
               <SelectItem key={e} value={e}>
                 {EVENT_META[e].label}
@@ -90,21 +106,27 @@ export function ActivityFilters({
         </Select>
       </div>
 
-      <div className="w-40">
-        <label className="mb-1 block text-xs font-medium text-muted-foreground">From</label>
-        <Input type="date" name="from" defaultValue={defaults.from} />
+      <div className="flex shrink-0 items-center gap-1.5">
+        <label htmlFor="activity-filter-from" className="text-xs text-muted-foreground">
+          From
+        </label>
+        <Input id="activity-filter-from" type="date" name="from" defaultValue={defaults.from} className="w-[128px]" />
       </div>
-      <div className="w-40">
-        <label className="mb-1 block text-xs font-medium text-muted-foreground">To</label>
-        <Input type="date" name="to" defaultValue={defaults.to} />
+      <div className="flex shrink-0 items-center gap-1.5">
+        <label htmlFor="activity-filter-to" className="text-xs text-muted-foreground">
+          To
+        </label>
+        <Input id="activity-filter-to" type="date" name="to" defaultValue={defaults.to} className="w-[128px]" />
       </div>
 
-      <Button type="submit">Apply Filters</Button>
-      {hasActiveFilters && (
-        <Button variant="outline" asChild>
-          <Link href={basePath}>Clear</Link>
-        </Button>
-      )}
+      <div className="flex shrink-0 items-center gap-2">
+        <Button type="submit">Apply Filters</Button>
+        {hasActiveFilters && (
+          <Button variant="outline" asChild>
+            <Link href={basePath}>Clear</Link>
+          </Button>
+        )}
+      </div>
     </form>
   );
 }

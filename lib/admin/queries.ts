@@ -36,9 +36,11 @@ export interface DisplayUser {
   user_id: string;
   business_name: string | null;
   email: string | null;
+  logo_url: string | null;
+  brand_id: string | null;
 }
 
-/** Batch-resolves {business_name, email} for a set of auth user ids. */
+/** Batch-resolves {business_name, email, logo_url, brand_id} for a set of auth user ids. */
 export async function getUserDisplayMap(
   userIds: string[]
 ): Promise<Map<string, DisplayUser>> {
@@ -48,14 +50,17 @@ export async function getUserDisplayMap(
 
   const supabase = await createClient();
   const [{ data: brands }, { data: profiles }] = await Promise.all([
-    supabase.from("brands").select("user_id, business_name").in("user_id", uniqueIds),
+    supabase.from("brands").select("id, user_id, business_name, logo_url").in("user_id", uniqueIds),
     supabase.from("profiles").select("id, email").in("id", uniqueIds),
   ]);
 
   for (const id of uniqueIds) {
+    const brand = brands?.find((b) => b.user_id === id);
     map.set(id, {
       user_id: id,
-      business_name: brands?.find((b) => b.user_id === id)?.business_name ?? null,
+      business_name: brand?.business_name ?? null,
+      logo_url: brand?.logo_url ?? null,
+      brand_id: brand?.id ?? null,
       email: profiles?.find((p) => p.id === id)?.email ?? null,
     });
   }
@@ -435,16 +440,26 @@ export interface ApprovalHistoryFilters {
   dateTo?: string;
 }
 
-export interface ApprovalHistoryRow {
-  id: string;
-  source: "verification" | "approval";
-  action: string;
-  brand_id: string;
-  business_name: string | null;
+export interface ApprovalHistoryDecision {
+  action: "verified" | "rejected_verification" | "approved" | "rejected_approval";
   performed_by: string | null;
   performed_by_email: string | null;
   remarks: string | null;
   created_at: string;
+}
+
+/**
+ * One card per brand — a brand's verification decision and approval
+ * decision are two different lifecycle stages of the *same* review, not
+ * separate history events, so they're grouped here rather than rendered as
+ * two near-identical rows (same brand, often the same admin).
+ */
+export interface ApprovalHistoryRow {
+  brand_id: string;
+  business_name: string | null;
+  verification: ApprovalHistoryDecision | null;
+  approval: ApprovalHistoryDecision | null;
+  latest_at: string;
 }
 
 export async function getApprovalHistory(
@@ -468,35 +483,38 @@ export async function getApprovalHistory(
     verificationsQuery = verificationsQuery.lte("verified_at", filters.dateTo);
     approvalsQuery = approvalsQuery.lte("created_at", filters.dateTo);
   }
+  if (filters.adminId) {
+    verificationsQuery = verificationsQuery.eq("verified_by", filters.adminId);
+    approvalsQuery = approvalsQuery.eq("approved_by", filters.adminId);
+  }
 
-  const includeVerifications =
-    !filters.actionType || filters.actionType === "verified" || filters.actionType === "rejected_verification";
-  const includeApprovals =
-    !filters.actionType || filters.actionType === "approved" || filters.actionType === "rejected_approval";
-
+  // Both buckets are always fetched (regardless of actionType) so a brand's
+  // card can show both badges together — actionType narrows which *cards*
+  // qualify further down, not which decisions get fetched.
   const [{ data: verifications }, { data: approvals }] = await Promise.all([
-    includeVerifications ? verificationsQuery : Promise.resolve({ data: [] as never[] }),
-    includeApprovals ? approvalsQuery : Promise.resolve({ data: [] as never[] }),
+    verificationsQuery,
+    approvalsQuery,
   ]);
 
-  let combined: ApprovalHistoryRow[] = [
+  interface FlatDecision extends ApprovalHistoryDecision {
+    source: "verification" | "approval";
+    brand_id: string;
+  }
+
+  let flat: FlatDecision[] = [
     ...(verifications ?? []).map((v) => ({
-      id: v.id,
       source: "verification" as const,
-      action: v.status === "verified" ? "verified" : "rejected_verification",
+      action: (v.status === "verified" ? "verified" : "rejected_verification") as FlatDecision["action"],
       brand_id: v.brand_id,
-      business_name: null,
       performed_by: v.verified_by,
       performed_by_email: null,
       remarks: v.remarks,
       created_at: v.verified_at as string,
     })),
     ...(approvals ?? []).map((a) => ({
-      id: a.id,
       source: "approval" as const,
-      action: a.status === "approved" ? "approved" : "rejected_approval",
+      action: (a.status === "approved" ? "approved" : "rejected_approval") as FlatDecision["action"],
       brand_id: a.brand_id,
-      business_name: null,
       performed_by: a.approved_by,
       performed_by_email: null,
       remarks: a.remarks,
@@ -504,33 +522,59 @@ export async function getApprovalHistory(
     })),
   ];
 
-  if (filters.actionType) {
-    combined = combined.filter((r) => r.action === filters.actionType);
-  }
-  if (filters.adminId) {
-    combined = combined.filter((r) => r.performed_by === filters.adminId);
-  }
-
   // A single "verify"/"reject" decision updates two brand_verifications rows
   // at once (business_proof + id_proof), sharing the same brand/action/actor/
-  // timestamp — collapse those into the one history entry the decision
-  // actually represents, keeping the earliest row id for a stable key.
-  const seen = new Map<string, ApprovalHistoryRow>();
-  for (const row of combined) {
+  // timestamp — collapse those into the one decision they actually represent.
+  const seen = new Map<string, FlatDecision>();
+  for (const row of flat) {
     const key = `${row.source}|${row.brand_id}|${row.action}|${row.performed_by}|${row.created_at}`;
     if (!seen.has(key)) seen.set(key, row);
   }
-  combined = Array.from(seen.values());
+  flat = Array.from(seen.values());
+  flat.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
-  combined.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  // Group into one card per brand. Sorted desc above, so the first
+  // verification/approval encountered per brand is its most recent.
+  const byBrand = new Map<string, ApprovalHistoryRow>();
+  for (const row of flat) {
+    const existing = byBrand.get(row.brand_id) ?? {
+      brand_id: row.brand_id,
+      business_name: null,
+      verification: null,
+      approval: null,
+      latest_at: row.created_at,
+    };
+    const decision: ApprovalHistoryDecision = {
+      action: row.action,
+      performed_by: row.performed_by,
+      performed_by_email: null,
+      remarks: row.remarks,
+      created_at: row.created_at,
+    };
+    if (row.source === "verification" && !existing.verification) existing.verification = decision;
+    if (row.source === "approval" && !existing.approval) existing.approval = decision;
+    byBrand.set(row.brand_id, existing);
+  }
 
-  const total = combined.length;
+  let cards = Array.from(byBrand.values());
+
+  if (filters.actionType) {
+    cards = cards.filter(
+      (c) => c.verification?.action === filters.actionType || c.approval?.action === filters.actionType
+    );
+  }
+
+  cards.sort((a, b) => new Date(b.latest_at).getTime() - new Date(a.latest_at).getTime());
+
+  const total = cards.length;
   const from = (filters.page - 1) * filters.pageSize;
-  const page = combined.slice(from, from + filters.pageSize);
+  const page = cards.slice(from, from + filters.pageSize);
 
   const brandIds = Array.from(new Set(page.map((r) => r.brand_id)));
   const adminIds = Array.from(
-    new Set(page.map((r) => r.performed_by).filter((x): x is string => Boolean(x)))
+    new Set(
+      page.flatMap((r) => [r.verification?.performed_by, r.approval?.performed_by]).filter((x): x is string => Boolean(x))
+    )
   );
 
   const [{ data: brands }, { data: admins }] = await Promise.all([
@@ -542,12 +586,18 @@ export async function getApprovalHistory(
       : Promise.resolve({ data: [] as { id: string; email: string | null }[] }),
   ]);
 
+  function withEmail(d: ApprovalHistoryDecision | null): ApprovalHistoryDecision | null {
+    if (!d) return null;
+    return { ...d, performed_by_email: admins?.find((a) => a.id === d.performed_by)?.email ?? null };
+  }
+
   return {
     total,
     rows: page.map((r) => ({
       ...r,
       business_name: brands?.find((b) => b.id === r.brand_id)?.business_name ?? null,
-      performed_by_email: admins?.find((a) => a.id === r.performed_by)?.email ?? null,
+      verification: withEmail(r.verification),
+      approval: withEmail(r.approval),
     })),
   };
 }
@@ -839,6 +889,8 @@ export interface SessionRow {
   user_id: string;
   business_name: string | null;
   email: string | null;
+  logo_url: string | null;
+  brand_id: string | null;
   login_at: string;
   logout_at: string | null;
   last_seen_at: string;
@@ -879,12 +931,70 @@ export async function getSessionsList(
       user_id: r.user_id,
       business_name: displayMap.get(r.user_id)?.business_name ?? null,
       email: displayMap.get(r.user_id)?.email ?? null,
+      logo_url: displayMap.get(r.user_id)?.logo_url ?? null,
+      brand_id: displayMap.get(r.user_id)?.brand_id ?? null,
       login_at: r.login_at,
       logout_at: r.logout_at,
       last_seen_at: r.last_seen_at,
       duration_seconds: r.duration_seconds,
       is_live: r.is_active && r.last_seen_at >= cutoff,
     })),
+  };
+}
+
+export interface SessionStats {
+  activeNow: number;
+  sessionsToday: number;
+  totalSessions: number;
+  totalTimeSeconds: number;
+}
+
+/** Header stat cards for the Active Sessions page — global counts, independent of the current filter/page. */
+export async function getSessionStats(): Promise<SessionStats> {
+  const supabase = await createClient();
+  const adminIds = await getAdminUserIds();
+  const cutoff = new Date(Date.now() - ACTIVE_WINDOW_SECONDS * 1000).toISOString();
+  const todayStart = startOfDay(new Date()).toISOString();
+
+  let activeQuery = supabase
+    .from("user_sessions")
+    .select("id", { count: "exact", head: true })
+    .eq("is_active", true)
+    .gte("last_seen_at", cutoff);
+  let todayQuery = supabase
+    .from("user_sessions")
+    .select("id", { count: "exact", head: true })
+    .gte("login_at", todayStart);
+  let totalQuery = supabase.from("user_sessions").select("id", { count: "exact", head: true });
+  let durationQuery = supabase
+    .from("user_sessions")
+    .select("login_at, duration_seconds, is_active");
+
+  if (adminIds.length > 0) {
+    const exclusion = `(${adminIds.join(",")})`;
+    activeQuery = activeQuery.not("user_id", "in", exclusion);
+    todayQuery = todayQuery.not("user_id", "in", exclusion);
+    totalQuery = totalQuery.not("user_id", "in", exclusion);
+    durationQuery = durationQuery.not("user_id", "in", exclusion);
+  }
+
+  const [{ count: activeNow }, { count: sessionsToday }, { count: totalSessions }, { data: durationRows }] =
+    await Promise.all([activeQuery, todayQuery, totalQuery, durationQuery]);
+
+  let totalTimeSeconds = 0;
+  for (const s of durationRows ?? []) {
+    if (s.duration_seconds !== null) {
+      totalTimeSeconds += s.duration_seconds;
+    } else if (s.is_active) {
+      totalTimeSeconds += Math.max(0, (Date.now() - new Date(s.login_at).getTime()) / 1000);
+    }
+  }
+
+  return {
+    activeNow: activeNow ?? 0,
+    sessionsToday: sessionsToday ?? 0,
+    totalSessions: totalSessions ?? 0,
+    totalTimeSeconds,
   };
 }
 
@@ -921,6 +1031,7 @@ export interface UserSessionSummaryRow extends SessionTimeSummary {
   user_id: string;
   business_name: string | null;
   email: string | null;
+  logo_url: string | null;
 }
 
 /** Per-user time-tracking summary for the last 7 days, most active first. */
@@ -956,6 +1067,7 @@ export async function getAllSessionSummaries(): Promise<UserSessionSummaryRow[]>
       user_id: userId,
       business_name: displayMap.get(userId)?.business_name ?? null,
       email: displayMap.get(userId)?.email ?? null,
+      logo_url: displayMap.get(userId)?.logo_url ?? null,
       ...summary,
     }))
     .sort((a, b) => b.totalThisWeekSeconds - a.totalThisWeekSeconds);

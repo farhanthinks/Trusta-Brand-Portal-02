@@ -9,11 +9,16 @@ import {
 
 export function SessionsFiltersBar({ defaults }: { defaults: { status?: string } }) {
   return (
-    <form method="get" className="mb-4 flex flex-wrap items-end gap-3 rounded-xl border bg-white p-4">
-      <div className="w-48">
-        <label className="mb-1 block text-xs font-medium text-muted-foreground">Status</label>
+    <form
+      method="get"
+      className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border bg-white px-4 py-3 shadow-sm"
+    >
+      <div className="w-44 shrink-0">
+        <label htmlFor="sessions-filter-status" className="sr-only">
+          Status
+        </label>
         <Select name="status" defaultValue={defaults.status ?? "all"}>
-          <SelectTrigger>
+          <SelectTrigger id="sessions-filter-status">
             <SelectValue placeholder="All sessions" />
           </SelectTrigger>
           <SelectContent>
@@ -23,7 +28,9 @@ export function SessionsFiltersBar({ defaults }: { defaults: { status?: string }
           </SelectContent>
         </Select>
       </div>
-      <Button type="submit">Apply filters</Button>
+      <Button type="submit" className="shrink-0">
+        Apply filters
+      </Button>
     </form>
   );
 }

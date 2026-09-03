@@ -9,6 +9,8 @@ import { ActivityStats } from "@/components/admin/logs/activity-stats";
 import { ActivityFilters } from "@/components/admin/logs/activity-filters";
 import { BrandActivityTimeline } from "@/components/admin/logs/brand-activity-timeline";
 import { ExportBrandLogsButton } from "@/components/admin/logs/export-brand-logs-button";
+import { LiveRefresh } from "@/components/admin/live-refresh";
+import { sweepExpiredSessions } from "@/lib/admin/sessions";
 import type { ActivityEventType } from "@/lib/supabase/types";
 import type { BrandActivityLogsFilters } from "@/lib/admin/queries";
 
@@ -39,6 +41,8 @@ export default async function BrandActivityDetailPage({
   };
   const exportFilters: Omit<BrandActivityLogsFilters, "page" | "pageSize"> = { brandId, ...filters };
 
+  await sweepExpiredSessions();
+
   const [{ rows, total }, stats] = await Promise.all([
     getBrandActivityLogs({ brandId, page, pageSize, ...filters }),
     getBrandActivityBrandStats(brandId),
@@ -46,6 +50,7 @@ export default async function BrandActivityDetailPage({
 
   return (
     <div>
+      <LiveRefresh intervalMs={15000} />
       <BrandActivityHeader profile={profile} />
 
       <ActivityStats

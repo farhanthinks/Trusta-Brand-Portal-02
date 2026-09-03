@@ -31,6 +31,7 @@ export interface Profile {
 export type ActivityEventType =
   | "login"
   | "logout"
+  | "session_expired"
   | "profile_update"
   | "purchase"
   | "upload_attempt"
@@ -40,6 +41,7 @@ export interface ActivityLog {
   id: string;
   user_id: string;
   brand_id: string | null;
+  session_id: string | null;
   event_type: ActivityEventType;
   metadata: Record<string, unknown>;
   ip_address: string | null;
@@ -261,6 +263,12 @@ export interface Database {
           p_offset?: number;
         };
         Returns: BrandActivitySummaryRow[];
+      };
+      expire_stale_sessions: {
+        Args: {
+          p_timeout_seconds?: number;
+        };
+        Returns: UserSession[];
       };
     };
     Enums: Record<string, never>;

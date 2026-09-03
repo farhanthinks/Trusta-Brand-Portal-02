@@ -1,6 +1,7 @@
 import "server-only";
 import { headers } from "next/headers";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { getActiveSessionId } from "@/lib/admin/sessions";
 import type { ActivityEventType } from "@/lib/supabase/types";
 
 interface RequestContext {
@@ -30,23 +31,32 @@ async function getRequestContext(): Promise<RequestContext> {
  * available — never fabricated when absent (e.g. local dev with no proxy
  * headers). user_agent rides in metadata (only shown in the event detail
  * view, not the compact list) rather than its own column.
+ *
+ * `sessionId` correlates the event with the exact user_sessions row it
+ * happened during. Most callers can omit it — it's read from the current
+ * browser's session cookie automatically — but the logout code paths pass
+ * it explicitly, captured once up front, to avoid racing endSession()'s own
+ * cookie deletion (both would otherwise read cookies() concurrently).
  */
 export async function logActivity(
   userId: string,
   eventType: ActivityEventType,
-  metadata: Record<string, unknown> = {}
+  metadata: Record<string, unknown> = {},
+  sessionId?: string | null
 ): Promise<void> {
   try {
     const admin = createAdminClient();
 
-    const [{ data: brand }, { ip, userAgent }] = await Promise.all([
+    const [{ data: brand }, { ip, userAgent }, resolvedSessionId] = await Promise.all([
       admin.from("brands").select("id").eq("user_id", userId).maybeSingle(),
       getRequestContext(),
+      sessionId !== undefined ? Promise.resolve(sessionId) : getActiveSessionId(),
     ]);
 
     await admin.from("activity_logs").insert({
       user_id: userId,
       brand_id: brand?.id ?? null,
+      session_id: resolvedSessionId,
       event_type: eventType,
       metadata: userAgent ? { ...metadata, user_agent: userAgent } : metadata,
       ip_address: ip,

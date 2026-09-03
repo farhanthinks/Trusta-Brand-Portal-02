@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { loginSchema, signUpSchema, type LoginInput, type SignUpInput } from "@/lib/validations/auth";
 import { logActivity } from "@/lib/admin/activity";
-import { startSession, endSession } from "@/lib/admin/sessions";
+import { startSession, getActiveSessionId, endSession } from "@/lib/admin/sessions";
 
 export interface AuthActionResult {
   error?: string;
@@ -77,10 +77,11 @@ export async function login(input: LoginInput): Promise<AuthActionResult> {
     return { error: "Your account has been suspended. Contact support." };
   }
 
-  await Promise.all([
-    startSession(data.user.id),
-    logActivity(data.user.id, "login", { email: data.user.email }),
-  ]);
+  // Sequential, not Promise.all: startSession() must set the session
+  // cookie before logActivity() reads it, or the login event would race
+  // and log against a stale (or no) session id.
+  await startSession(data.user.id);
+  await logActivity(data.user.id, "login", { email: data.user.email });
 
   redirect("/");
 }
@@ -92,7 +93,9 @@ export async function logout() {
   } = await supabase.auth.getUser();
 
   if (user) {
-    await Promise.all([logActivity(user.id, "logout"), endSession()]);
+    const sessionId = await getActiveSessionId();
+    const closed = await endSession(sessionId);
+    if (closed) await logActivity(user.id, "logout", {}, sessionId);
   }
 
   await supabase.auth.signOut();
