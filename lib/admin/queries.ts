@@ -5,7 +5,9 @@ import type {
   ActivityEventType,
   Brand,
   BrandActivitySummaryRow,
+  BrandEntitlement,
   BrandStatus,
+  Order,
 } from "@/lib/supabase/types";
 
 const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
@@ -271,6 +273,8 @@ export async function getAvgApprovalTurnaroundHours(): Promise<number | null> {
 // User Management (/admin/users)
 // ---------------------------------------------------------------------------
 
+export type UsersListSort = "newest" | "oldest" | "name_asc" | "name_desc";
+
 export interface UsersListFilters {
   page: number;
   pageSize: number;
@@ -279,6 +283,7 @@ export interface UsersListFilters {
   businessType?: string;
   dateFrom?: string;
   dateTo?: string;
+  sort?: UsersListSort;
 }
 
 export interface UserListRow {
@@ -286,6 +291,7 @@ export interface UserListRow {
   user_id: string;
   business_name: string | null;
   email: string | null;
+  logo_url: string | null;
   business_type: string | null;
   status: BrandStatus;
   created_at: string;
@@ -303,7 +309,7 @@ export async function getUsersList(
 
   let query = supabase
     .from("brands")
-    .select("id, user_id, business_name, business_type, status, created_at", {
+    .select("id, user_id, business_name, business_type, status, logo_url, created_at", {
       count: "exact",
     });
 
@@ -315,7 +321,21 @@ export async function getUsersList(
   if (filters.dateFrom) query = query.gte("created_at", filters.dateFrom);
   if (filters.dateTo) query = query.lte("created_at", filters.dateTo);
 
-  const { data, count } = await query.order("created_at", { ascending: false }).range(from, to);
+  switch (filters.sort) {
+    case "oldest":
+      query = query.order("created_at", { ascending: true });
+      break;
+    case "name_asc":
+      query = query.order("business_name", { ascending: true, nullsFirst: false });
+      break;
+    case "name_desc":
+      query = query.order("business_name", { ascending: false, nullsFirst: false });
+      break;
+    default:
+      query = query.order("created_at", { ascending: false });
+  }
+
+  const { data, count } = await query.range(from, to);
   const rows = data ?? [];
   const userIds = rows.map((r) => r.user_id);
 
@@ -342,6 +362,7 @@ export async function getUsersList(
         user_id: r.user_id,
         business_name: r.business_name,
         business_type: r.business_type,
+        logo_url: r.logo_url,
         status: r.status as BrandStatus,
         created_at: r.created_at,
         email: profile?.email ?? null,
@@ -375,18 +396,26 @@ export interface UserDetail {
   brand: Record<string, unknown> | null;
   profile: Record<string, unknown> | null;
   verifications: Record<string, unknown>[];
-  orders: Record<string, unknown>[];
+  orders: Order[];
   recentActivity: Record<string, unknown>[];
+  entitlements: BrandEntitlement | null;
 }
 
 export async function getUserDetail(brandId: string): Promise<UserDetail> {
   const supabase = await createClient();
   const { data: brand } = await supabase.from("brands").select("*").eq("id", brandId).maybeSingle();
   if (!brand) {
-    return { brand: null, profile: null, verifications: [], orders: [], recentActivity: [] };
+    return {
+      brand: null,
+      profile: null,
+      verifications: [],
+      orders: [],
+      recentActivity: [],
+      entitlements: null,
+    };
   }
 
-  const [{ data: profile }, { data: verifications }, { data: orders }, { data: activity }] =
+  const [{ data: profile }, { data: verifications }, { data: orders }, { data: activity }, { data: entitlements }] =
     await Promise.all([
       supabase.from("profiles").select("*").eq("id", brand.user_id).maybeSingle(),
       supabase
@@ -405,6 +434,7 @@ export async function getUserDetail(brandId: string): Promise<UserDetail> {
         .eq("user_id", brand.user_id)
         .order("created_at", { ascending: false })
         .limit(20),
+      supabase.from("brand_entitlements").select("*").eq("brand_id", brandId).maybeSingle(),
     ]);
 
   return {
@@ -413,7 +443,31 @@ export async function getUserDetail(brandId: string): Promise<UserDetail> {
     verifications: verifications ?? [],
     orders: orders ?? [],
     recentActivity: activity ?? [],
+    entitlements: entitlements ?? null,
   };
+}
+
+/** Same as getUserDetail(), keyed by the auth user id instead of the brand id — what the /admin/users/[userId] detail page's URL carries. */
+export async function getUserDetailByUserId(userId: string): Promise<UserDetail> {
+  const supabase = await createClient();
+  const { data: brand } = await supabase
+    .from("brands")
+    .select("id")
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (!brand) {
+    return {
+      brand: null,
+      profile: null,
+      verifications: [],
+      orders: [],
+      recentActivity: [],
+      entitlements: null,
+    };
+  }
+
+  return getUserDetail(brand.id);
 }
 
 export interface AdminSummary {

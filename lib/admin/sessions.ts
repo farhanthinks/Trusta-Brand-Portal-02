@@ -135,6 +135,48 @@ export async function touchSession(): Promise<void> {
 }
 
 /**
+ * Closes out every currently-active session row for one user — the "log out
+ * of all devices" primitive. Only closes out our own tracking table; the
+ * caller is still responsible for revoking the actual Supabase Auth
+ * sessions (supabase.auth.signOut({ scope: "global" })), which is what
+ * actually invalidates other devices' refresh tokens. Returns how many rows
+ * it closed, purely for the caller's own logging/toast copy.
+ */
+export async function endAllSessions(userId: string): Promise<number> {
+  try {
+    const admin = createAdminClient();
+    const { data: sessions } = await admin
+      .from("user_sessions")
+      .select("id, login_at")
+      .eq("user_id", userId)
+      .eq("is_active", true);
+
+    if (!sessions || sessions.length === 0) return 0;
+
+    const now = new Date();
+    await Promise.all(
+      sessions.map((s) =>
+        admin
+          .from("user_sessions")
+          .update({
+            logout_at: now.toISOString(),
+            is_active: false,
+            duration_seconds: Math.max(
+              0,
+              Math.round((now.getTime() - new Date(s.login_at).getTime()) / 1000)
+            ),
+          })
+          .eq("id", s.id)
+          .eq("is_active", true)
+      )
+    );
+    return sessions.length;
+  } catch {
+    return 0;
+  }
+}
+
+/**
  * Closes out every user_sessions row whose heartbeat has timed out and
  * records one `session_expired` activity_logs row per closed session — the
  * automatic counterpart to endSession()'s explicit logout. Runs via the

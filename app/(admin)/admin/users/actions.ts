@@ -3,7 +3,12 @@
 import { revalidatePath } from "next/cache";
 import { requireAdmin } from "@/lib/admin/require-admin";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { getUserDetail, type UserDetail } from "@/lib/admin/queries";
+import {
+  getUserDetailByUserId,
+  getUsersList,
+  type UserDetail,
+  type UsersListFilters,
+} from "@/lib/admin/queries";
 
 export interface AdminActionResult {
   error?: string;
@@ -117,14 +122,22 @@ export async function deleteBrandUser(targetUserId: string): Promise<AdminAction
 }
 
 export async function getUserDetailAction(
-  brandId: string
+  userId: string
 ): Promise<UserDetail & { documentUrls: Record<string, string> }> {
   const { isAdmin } = await requireAdmin();
   if (!isAdmin) {
-    return { brand: null, profile: null, verifications: [], orders: [], recentActivity: [], documentUrls: {} };
+    return {
+      brand: null,
+      profile: null,
+      verifications: [],
+      orders: [],
+      recentActivity: [],
+      entitlements: null,
+      documentUrls: {},
+    };
   }
 
-  const detail = await getUserDetail(brandId);
+  const detail = await getUserDetailByUserId(userId);
   const admin = createAdminClient();
   const documentUrls: Record<string, string> = {};
 
@@ -135,4 +148,13 @@ export async function getUserDetailAction(
   }
 
   return { ...detail, documentUrls };
+}
+
+/** Full (unpaginated) export honoring the current list filters — used by the header's Export button. */
+export async function exportUsersList(filters: Omit<UsersListFilters, "page" | "pageSize">) {
+  const { isAdmin } = await requireAdmin();
+  if (!isAdmin) return { error: "Not authorized" };
+
+  const { rows } = await getUsersList({ ...filters, page: 1, pageSize: 10000 });
+  return rows;
 }

@@ -1,6 +1,6 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
-import type { ActivityLog, CatalogItem, Order } from "@/lib/supabase/types";
+import type { ActivityLog, CatalogItem, Order, UserSession } from "@/lib/supabase/types";
 
 /**
  * Every query here is scoped by a brandId that the caller must have already
@@ -62,6 +62,19 @@ export async function getOrdersPage(
     .range(from, to);
 
   return { rows: data ?? [], total: count ?? 0 };
+}
+
+/** The signed-in brand's own login history — Settings > Security > Active Sessions. */
+export async function getRecentSessionsForUser(userId: string, limit = 10): Promise<UserSession[]> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("user_sessions")
+    .select("*")
+    .eq("user_id", userId)
+    .order("login_at", { ascending: false })
+    .limit(limit);
+
+  return data ?? [];
 }
 
 export interface UsageTotals {

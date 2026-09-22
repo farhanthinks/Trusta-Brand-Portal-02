@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Menu } from "lucide-react";
-import { LayoutDashboard, ShoppingBag } from "lucide-react";
+import { LayoutDashboard, ShoppingBag, Settings } from "lucide-react";
 import { LogoutButton } from "@/components/logout-button";
 import { Button } from "@/components/ui/button";
 import {
@@ -22,6 +22,7 @@ import type { Brand, BrandEntitlement } from "@/lib/supabase/types";
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/purchase", label: "Purchase QR / Subscription", icon: ShoppingBag },
+  { href: "/dashboard/settings", label: "Settings", icon: Settings },
 ];
 
 function Logo() {

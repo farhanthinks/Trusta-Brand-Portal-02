@@ -20,11 +20,21 @@ export interface TierOption {
   price: number;
 }
 
+export interface NotificationPreferences {
+  email_notifications: boolean;
+  account_alerts: boolean;
+  payment_alerts: boolean;
+}
+
 export interface Profile {
   id: string;
   email: string | null;
+  full_name: string | null;
+  phone: string | null;
   is_admin: boolean;
   is_suspended: boolean;
+  deactivated_at: string | null;
+  notification_preferences: NotificationPreferences;
   created_at: string;
 }
 
